@@ -1,39 +1,66 @@
-name: Deploy Backend
+name: Deploy Adaptify to Cloud
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  build-and-deploy:
+  # ── Build & Test ────────────────────────────────────────────────────────────
+  build:
+    name: Build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: 21
-          distribution: temurin
-          cache: maven
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
 
-      - name: Build JAR
-        run: mvn clean package -DskipTests
+      - name: Build with Maven
+        run: mvn clean package -DskipTests -B
 
+      # Finds the main JAR (ignoring -plain.jar if it exists) and standardizes the name
       - name: Rename JAR for upload
-        run: cp target/*.jar target/app.jar
+        run: |
+          JAR_FILE=$(find target/ -maxdepth 1 -name "*.jar" ! -name "*-plain.jar" | head -n 1)
+          mv "$JAR_FILE" target/adaptify.jar
 
-      - name: Copy JAR to VM
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/adaptify.jar
+          retention-days: 1
+
+  # ── Deploy ──────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Cloud VM
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: ./
+
+      - name: Copy JAR Directly to Destination
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
-          source: target/app.jar
-          target: /opt/adaptify/backend/
-          strip_components: 1
+          source: "adaptify.jar"
+          target: "/opt/adaptify/backend/"
 
       - name: Restart service
         uses: appleboy/ssh-action@v1.0.3
@@ -44,4 +71,11 @@ jobs:
           script: |
             sudo systemctl restart adaptify
             sleep 5
-            sudo systemctl is-active --quiet adaptify && echo "Service started OK" || (journalctl -u adaptify -n 30 && exit 1)
+            sudo systemctl is-active --quiet adaptify && echo "✅ Service started OK" || (journalctl -u adaptify -n 30 && exit 1)
+
+      - name: Deployment summary
+        run: |
+          echo "### ✅ Deployed Adaptify to Cloud" >> $GITHUB_STEP_SUMMARY
+          echo "- **Host:** ${{ secrets.VM_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
