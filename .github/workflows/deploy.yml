@@ -27,13 +27,13 @@ jobs:
         run: mvn clean package -DskipTests -B
 
       - name: Rename JAR for upload
-        run: cp target/adaptify-*.jar target/adaptify.jar
+        run: cp target/*.jar target/app.jar
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-jar
-          path: target/adaptify.jar
+          path: target/app.jar
           retention-days: 1
 
   # ── Deploy ──────────────────────────────────────────────────────────────────
@@ -50,74 +50,23 @@ jobs:
           name: app-jar
           path: ./
 
-      - name: Copy JAR to VM (Temp directory)
+      - name: Copy JAR to VM
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
-          port: 22
-          source: "adaptify.jar"
-          target: "/tmp"
+          source: target/app.jar
+          target: /opt/adaptify/backend/
+          strip_components: 1
 
-      - name: Deploy, Restart & Health Check
+      - name: Restart service
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
-          port: 22
           script: |
-            set -e
-            
-            DEPLOY_DIR="/opt/adaptify"
-            JAR="adaptify.jar"
-            SERVICE="adaptify"
-
-            # Ensure deployment directory exists
-            sudo mkdir -p $DEPLOY_DIR
-            sudo chown $USER:$USER $DEPLOY_DIR
-
-            echo "==> Stopping service..."
-            sudo systemctl stop $SERVICE || true
-
-            echo "==> Rotating JAR..."
-            if [ -f "$DEPLOY_DIR/$JAR" ]; then
-              cp "$DEPLOY_DIR/$JAR" "$DEPLOY_DIR/$JAR.prev"
-            fi
-            
-            # Move the new JAR from tmp to the deployment folder
-            mv "/tmp/$JAR" "$DEPLOY_DIR/$JAR"
-            chmod 755 "$DEPLOY_DIR/$JAR"
-
-            echo "==> Starting service..."
-            sudo systemctl start $SERVICE
-            sudo systemctl enable $SERVICE
-
-            echo "==> Waiting for health check..."
-            sleep 8
-            for i in 1 2 3 4 5; do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/ || echo "000")
-              if [ "$STATUS" = "200" ]; then
-                echo "==> Health check passed (HTTP 200)"
-                break
-              fi
-              if [ "$i" = "5" ]; then
-                echo "==> Health check failed — rolling back!"
-                cp "$DEPLOY_DIR/$JAR.prev" "$DEPLOY_DIR/$JAR"
-                sudo systemctl restart $SERVICE
-                exit 1
-              fi
-              echo "    Attempt $i: HTTP $STATUS — retrying in 5s..."
-              sleep 5
-            done
-
-            echo "==> Deployment successful!"
-            sudo systemctl status $SERVICE --no-pager
-
-      - name: Deployment summary
-        run: |
-          echo "### ✅ Deployed Adaptify to Cloud" >> $GITHUB_STEP_SUMMARY
-          echo "- **Host:** ${{ secrets.VM_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+            sudo systemctl restart adaptify
+            sleep 5
+            sudo systemctl is-active --quiet adaptify && echo "Service started OK" || (journalctl -u adaptify -n 30 && exit 1)
