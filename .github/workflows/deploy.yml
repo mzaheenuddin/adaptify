@@ -35,7 +35,7 @@ jobs:
           name: app-jar
           path: target/app.jar
           retention-days: 1
-
+  
   # ── Deploy ──────────────────────────────────────────────────────────────────
   deploy:
     name: Deploy to Cloud VM
@@ -56,9 +56,9 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
-          source: target/app.jar
-          target: /opt/adaptify/backend/
-          strip_components: 1
+          source: "app.jar"                           # Changed from target/app.jar
+          target: "/opt/adaptify/backend/"
+          # strip_components: 1 removed
 
       - name: Restart service
         uses: appleboy/ssh-action@v1.0.3
