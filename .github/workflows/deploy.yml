@@ -27,7 +27,7 @@ jobs:
         run: mvn clean package -DskipTests -B
 
       - name: Rename JAR for upload
-        run: mv target/adaptify-*.jar target/adaptify.jar
+        run: cp target/adaptify-*.jar target/adaptify.jar
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
