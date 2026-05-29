@@ -1,0 +1,31 @@
+# /etc/systemd/system/pdf-converter.service
+# Place this file at: /etc/systemd/system/pdf-converter.service
+# Then run:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable pdf-converter
+#   sudo systemctl start pdf-converter
+
+[Unit]
+Description=Transmute PDF Converter — Spring Boot App
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/pdf-converter
+ExecStart=/usr/bin/java -Xms256m -Xmx1g \
+    -Dspring.profiles.active=prod \
+    -jar /opt/pdf-converter/pdf-converter.jar
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pdf-converter
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

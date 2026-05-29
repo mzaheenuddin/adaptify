@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transmute — PDF Converter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0d0e11;
+      --surface:    #14161b;
+      --surface2:   #1c1f27;
+      --border:     #2a2d38;
+      --border2:    #373b4d;
+      --accent:     #e8ff47;
+      --accent2:    #ff6b35;
+      --text:       #e8eaf0;
+      --muted:      #6b7080;
+      --success:    #4ade80;
+      --error:      #f87171;
+      --mono:       'Space Mono', monospace;
+      --sans:       'DM Sans', sans-serif;
+      --radius:     6px;
+      --shadow:     0 8px 32px rgba(0,0,0,.5);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      font-size: 15px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── NOISE TEXTURE OVERLAY ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+    }
+
+    /* ── GRID BACKGROUND ── */
+    body::after {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    .wrapper {
+      position: relative; z-index: 1;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── HEADER ── */
+    header {
+      padding: 48px 0 40px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 56px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .logo-mark {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -1px;
+    }
+
+    .logo-sub {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+
+    .badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      color: var(--muted);
+      padding: 4px 10px;
+      border-radius: var(--radius);
+      letter-spacing: .05em;
+    }
+
+    /* ── SECTION LABEL ── */
+    .section-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* ── DROP ZONE ── */
+    .dropzone-wrap {
+      margin-bottom: 40px;
+    }
+
+    #dropzone {
+      border: 2px dashed var(--border2);
+      border-radius: 10px;
+      background: var(--surface);
+      padding: 56px 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #dropzone:hover, #dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(232, 255, 71, 0.04);
+    }
+
+    #dropzone.has-file {
+      border-style: solid;
+      border-color: var(--accent);
+      padding: 28px 40px;
+    }
+
+    #dropzone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+      width: 100%; height: 100%;
+    }
+
+    .drop-icon {
+      font-size: 40px;
+      margin-bottom: 16px;
+      display: block;
+      transition: transform .2s;
+    }
+
+    #dropzone:hover .drop-icon { transform: translateY(-4px); }
+
+    .drop-primary {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .drop-secondary {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .drop-accent { color: var(--accent); }
+
+    /* File info bar */
+    .file-info {
+      display: none;
+      align-items: center;
+      gap: 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      margin-top: 14px;
+    }
+
+    .file-info.visible { display: flex; }
+
+    .file-icon-box {
+      width: 40px; height: 40px;
+      background: rgba(232,255,71,.12);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .file-meta { flex: 1; min-width: 0; }
+    .file-name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-details { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+
+    .file-remove {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 18px; padding: 4px;
+      transition: color .15s;
+    }
+    .file-remove:hover { color: var(--error); }
+
+    /* ── TWO COLUMN LAYOUT ── */
+    .options-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    @media (max-width: 640px) {
+      .options-row { grid-template-columns: 1fr; }
+    }
+
+    .option-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+    }
+
+    .option-card h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .option-card h3 .icon { font-size: 16px; }
+
+    /* ── FORMAT GRID ── */
+    .format-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    @media (max-width: 480px) {
+      .format-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .format-btn {
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      border-radius: var(--radius);
+      padding: 10px 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      cursor: pointer;
+      transition: all .15s;
+      text-align: center;
+      position: relative;
+    }
+
+    .format-btn:hover {
+      border-color: var(--border2);
+      color: var(--text);
+      background: #21242f;
+    }
+
+    .format-btn.active {
+      border-color: var(--accent);
+      background: rgba(232,255,71,.1);
+      color: var(--accent);
+    }
+
+    .format-tag {
+      display: block;
+      font-size: 9px;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: 2px;
+      letter-spacing: 0;
+      font-family: var(--sans);
+    }
+
+    .format-btn.active .format-tag { color: rgba(232,255,71,.6); }
+
+    /* ── QUALITY SLIDER ── */
+    .quality-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .quality-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all .15s;
+      background: var(--surface2);
+    }
+
+    .quality-row:hover { border-color: var(--border2); }
+
+    .quality-row input[type="radio"] { display: none; }
+
+    .quality-row.active {
+      border-color: var(--accent);
+      background: rgba(232,255,71,.07);
+    }
+
+    .q-indicator {
+      display: flex;
+      gap: 3px;
+    }
+
+    .q-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--border2);
+    }
+
+    .quality-row.active .q-dot.filled { background: var(--accent); }
+
+    .q-label {
+      font-weight: 500;
+      font-size: 14px;
+      color: var(--text);
+      flex: 1;
+    }
+
+    .q-desc {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    /* ── CONVERT BUTTON ── */
+    .convert-section {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    #convertBtn {
+      background: var(--accent);
+      color: #0d0e11;
+      border: none;
+      border-radius: 8px;
+      padding: 16px 40px;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      cursor: pointer;
+      transition: all .2s;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    #convertBtn:hover:not(:disabled) {
+      background: #f0ff6e;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 24px rgba(232,255,71,.3);
+    }
+
+    #convertBtn:active:not(:disabled) { transform: translateY(0); }
+
+    #convertBtn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Spinner inside button */
+    .btn-spinner {
+      display: none;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(13,14,17,.3);
+      border-top-color: #0d0e11;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    #convertBtn.loading .btn-text { opacity: 0; }
+    #convertBtn.loading .btn-spinner { display: block; }
+
+    @keyframes spin { to { transform: translate(-50%,-50%) rotate(360deg); } }
+
+    /* Status message */
+    #statusMsg {
+      font-size: 13px;
+      display: none;
+    }
+
+    #statusMsg.success { display: block; color: var(--success); }
+    #statusMsg.error   { display: block; color: var(--error); }
+
+    /* ── PROGRESS BAR ── */
+    .progress-wrap {
+      display: none;
+      margin-top: 20px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      height: 4px;
+    }
+
+    .progress-wrap.visible { display: block; }
+
+    .progress-bar {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width .3s ease;
+      border-radius: 6px;
+    }
+
+    /* ── RESULT CARD ── */
+    #resultCard {
+      display: none;
+      margin-top: 32px;
+      background: var(--surface);
+      border: 1px solid var(--success);
+      border-radius: 10px;
+      padding: 24px;
+      animation: slideUp .3s ease;
+    }
+
+    #resultCard.visible { display: block; }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .result-check {
+      width: 32px; height: 32px;
+      background: rgba(74, 222, 128, .15);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    .result-title {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--success);
+    }
+
+    .result-subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    #downloadBtn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--success);
+      color: #0d0e11;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 24px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all .15s;
+    }
+
+    #downloadBtn:hover {
+      background: #6de896;
+      transform: translateY(-1px);
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    /* ── ERROR STATE ── */
+    #errorCard {
+      display: none;
+      margin-top: 20px;
+      background: rgba(248,113,113,.07);
+      border: 1px solid var(--error);
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-size: 13px;
+      color: var(--error);
+    }
+    #errorCard.visible { display: block; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <span class="logo-mark">Transmute</span>
+      <span class="logo-sub">PDF Converter</span>
+    </div>
+    <span class="badge">v1.0.0</span>
+  </header>
+
+  <!-- DROP ZONE -->
+  <div class="dropzone-wrap">
+    <div class="section-label">01 — Upload PDF</div>
+    <div id="dropzone">
+      <input type="file" id="fileInput" accept=".pdf" />
+      <span class="drop-icon">📄</span>
+      <div class="drop-primary">Drop your PDF here, or <span class="drop-accent">browse</span></div>
+      <div class="drop-secondary">Supports PDF files up to 200MB</div>
+    </div>
+
+    <div class="file-info" id="fileInfo">
+      <div class="file-icon-box">📄</div>
+      <div class="file-meta">
+        <div class="file-name" id="fileName">—</div>
+        <div class="file-details" id="fileDetails">—</div>
+      </div>
+      <button class="file-remove" id="fileRemove" title="Remove file">✕</button>
+    </div>
+  </div>
+
+  <!-- OPTIONS ROW -->
+  <div class="options-row">
+
+    <!-- FORMAT PICKER -->
+    <div class="option-card">
+      <h3><span class="icon">🎯</span> Output Format</h3>
+      <div class="format-grid" id="formatGrid">
+        <button class="format-btn active" data-format="JPEG">
+          JPEG <span class="format-tag">Image</span>
+        </button>
+        <button class="format-btn" data-format="PNG">
+          PNG <span class="format-tag">Image</span>
+        </button>
+        <button class="format-btn" data-format="WEBP">
+          WebP <span class="format-tag">Image</span>
+        </button>
+        <button class="format-btn" data-format="TIFF">
+          TIFF <span class="format-tag">Image</span>
+        </button>
+        <button class="format-btn" data-format="BMP">
+          BMP <span class="format-tag">Image</span>
+        </button>
+        <button class="format-btn" data-format="GIF">
+          GIF <span class="format-tag">Image</span>
+        </button>
+        <button class="format-btn" data-format="SVG">
+          SVG <span class="format-tag">Vector</span>
+        </button>
+        <button class="format-btn" data-format="TXT">
+          TXT <span class="format-tag">Text</span>
+        </button>
+        <button class="format-btn" data-format="HTML">
+          HTML <span class="format-tag">Web</span>
+        </button>
+        <button class="format-btn" data-format="DOCX">
+          DOCX <span class="format-tag">Word</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- QUALITY PICKER -->
+    <div class="option-card">
+      <h3><span class="icon">⚡</span> Quality</h3>
+      <div class="quality-options" id="qualityOptions">
+
+        <label class="quality-row" id="q-draft">
+          <input type="radio" name="quality" value="draft">
+          <div class="q-indicator">
+            <div class="q-dot filled"></div>
+            <div class="q-dot"></div>
+            <div class="q-dot"></div>
+            <div class="q-dot"></div>
+          </div>
+          <span class="q-label">Draft</span>
+          <span class="q-desc">72 DPI · fast</span>
+        </label>
+
+        <label class="quality-row active" id="q-standard">
+          <input type="radio" name="quality" value="standard" checked>
+          <div class="q-indicator">
+            <div class="q-dot filled"></div>
+            <div class="q-dot filled"></div>
+            <div class="q-dot"></div>
+            <div class="q-dot"></div>
+          </div>
+          <span class="q-label">Standard</span>
+          <span class="q-desc">150 DPI · balanced</span>
+        </label>
+
+        <label class="quality-row" id="q-high">
+          <input type="radio" name="quality" value="high">
+          <div class="q-indicator">
+            <div class="q-dot filled"></div>
+            <div class="q-dot filled"></div>
+            <div class="q-dot filled"></div>
+            <div class="q-dot"></div>
+          </div>
+          <span class="q-label">High</span>
+          <span class="q-desc">200 DPI · sharp</span>
+        </label>
+
+        <label class="quality-row" id="q-ultra">
+          <input type="radio" name="quality" value="ultra">
+          <div class="q-indicator">
+            <div class="q-dot filled"></div>
+            <div class="q-dot filled"></div>
+            <div class="q-dot filled"></div>
+            <div class="q-dot filled"></div>
+          </div>
+          <span class="q-label">Ultra</span>
+          <span class="q-desc">300 DPI · print-ready</span>
+        </label>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- CONVERT SECTION -->
+  <div class="convert-section">
+    <button id="convertBtn" disabled>
+      <span class="btn-text">CONVERT</span>
+      <span class="btn-spinner"></span>
+    </button>
+    <span id="statusMsg"></span>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <!-- RESULT CARD -->
+  <div id="resultCard">
+    <div class="result-header">
+      <div class="result-check">✓</div>
+      <div>
+        <div class="result-title">Conversion complete</div>
+        <div class="result-subtitle" id="resultMeta">—</div>
+      </div>
+    </div>
+    <a id="downloadBtn" href="#" download>
+      ⬇ Download file
+    </a>
+  </div>
+
+  <!-- ERROR CARD -->
+  <div id="errorCard"></div>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>Transmute · com.zaheen.adaptify</span>
+    <span>Spring Boot 3 · PDFBox 3</span>
+  </footer>
+
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let selectedFile = null;
+  let selectedFormat = 'JPEG';
+  let selectedQuality = 'standard';
+
+  // ── Elements ──────────────────────────────────────────────────────────────
+  const dropzone     = document.getElementById('dropzone');
+  const fileInput    = document.getElementById('fileInput');
+  const fileInfo     = document.getElementById('fileInfo');
+  const fileNameEl   = document.getElementById('fileName');
+  const fileDetailsEl= document.getElementById('fileDetails');
+  const fileRemove   = document.getElementById('fileRemove');
+  const convertBtn   = document.getElementById('convertBtn');
+  const resultCard   = document.getElementById('resultCard');
+  const errorCard    = document.getElementById('errorCard');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressBar  = document.getElementById('progressBar');
+  const resultMeta   = document.getElementById('resultMeta');
+  const downloadBtn  = document.getElementById('downloadBtn');
+  const statusMsg    = document.getElementById('statusMsg');
+
+  // ── Format selection ──────────────────────────────────────────────────────
+  document.querySelectorAll('.format-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.format-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedFormat = btn.dataset.format;
+    });
+  });
+
+  // ── Quality selection ─────────────────────────────────────────────────────
+  document.querySelectorAll('.quality-row').forEach(row => {
+    row.addEventListener('click', () => {
+      document.querySelectorAll('.quality-row').forEach(r => r.classList.remove('active'));
+      row.classList.add('active');
+      selectedQuality = row.querySelector('input').value;
+    });
+  });
+
+  // ── Drag & Drop ───────────────────────────────────────────────────────────
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) setFile(file);
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) setFile(fileInput.files[0]);
+  });
+
+  fileRemove.addEventListener('click', () => clearFile());
+
+  function setFile(file) {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      showError('Only PDF files are supported.');
+      return;
+    }
+    selectedFile = file;
+    fileNameEl.textContent = file.name;
+    fileDetailsEl.textContent = formatBytes(file.size) + ' · Scanning…';
+    fileInfo.classList.add('visible');
+    dropzone.classList.add('has-file');
+    convertBtn.disabled = false;
+    hideResults();
+
+    // Fetch page count
+    const fd = new FormData();
+    fd.append('file', file);
+    fetch('/info', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        fileDetailsEl.textContent = formatBytes(file.size) + ' · ' + data.pages + ' page' + (data.pages !== 1 ? 's' : '');
+      })
+      .catch(() => {
+        fileDetailsEl.textContent = formatBytes(file.size);
+      });
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    fileInput.value = '';
+    fileInfo.classList.remove('visible');
+    dropzone.classList.remove('has-file');
+    convertBtn.disabled = true;
+    hideResults();
+  }
+
+  // ── Convert ───────────────────────────────────────────────────────────────
+  convertBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    setLoading(true);
+    hideResults();
+
+    const fd = new FormData();
+    fd.append('file', selectedFile);
+    fd.append('format', selectedFormat);
+    fd.append('quality', selectedQuality);
+
+    // Fake progress animation while waiting
+    animateProgress();
+
+    try {
+      const res = await fetch('/convert', { method: 'POST', body: fd });
+
+      if (!res.ok) {
+        throw new Error('Server returned ' + res.status + '. Please try again.');
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const sizeHeader   = res.headers.get('X-File-Size') || blob.size;
+      const match = disposition.match(/filename="([^"]+)"/);
+      const downloadName = match ? match[1] : 'converted' + getExt(selectedFormat);
+
+      // Create object URL for download
+      const url = URL.createObjectURL(blob);
+      downloadBtn.href = url;
+      downloadBtn.download = downloadName;
+      downloadBtn.textContent = '⬇ Download ' + downloadName;
+
+      resultMeta.textContent = downloadName + ' · ' + formatBytes(parseInt(sizeHeader));
+      resultCard.classList.add('visible');
+      completeProgress();
+
+    } catch (err) {
+      showError(err.message || 'Conversion failed. Please try again.');
+      resetProgress();
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  // ── Progress animation ────────────────────────────────────────────────────
+  let progressInterval;
+
+  function animateProgress() {
+    progressWrap.classList.add('visible');
+    let val = 0;
+    progressBar.style.width = '0%';
+    progressInterval = setInterval(() => {
+      // Fast to 80%, then crawl — waiting for server
+      val = val < 80 ? val + (80 - val) * 0.06 : val + 0.1;
+      if (val > 90) val = 90;
+      progressBar.style.width = val + '%';
+    }, 100);
+  }
+
+  function completeProgress() {
+    clearInterval(progressInterval);
+    progressBar.style.width = '100%';
+    setTimeout(() => progressWrap.classList.remove('visible'), 600);
+  }
+
+  function resetProgress() {
+    clearInterval(progressInterval);
+    progressBar.style.width = '0%';
+    progressWrap.classList.remove('visible');
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function setLoading(on) {
+    convertBtn.disabled = on;
+    convertBtn.classList.toggle('loading', on);
+  }
+
+  function hideResults() {
+    resultCard.classList.remove('visible');
+    errorCard.classList.remove('visible');
+    errorCard.textContent = '';
+  }
+
+  function showError(msg) {
+    errorCard.textContent = '⚠ ' + msg;
+    errorCard.classList.add('visible');
+    resetProgress();
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  }
+
+  function getExt(format) {
+    const exts = { JPEG:'.jpg', PNG:'.png', WEBP:'.webp', TIFF:'.tiff',
+                   BMP:'.bmp', GIF:'.gif', SVG:'.zip', TXT:'.txt', HTML:'.html', DOCX:'.docx' };
+    return exts[format] || '';
+  }
+</script>
+</body>
+</html>
